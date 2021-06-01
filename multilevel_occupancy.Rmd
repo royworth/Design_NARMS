@@ -1,0 +1,664 @@
+---
+title: "NARMS design example"
+author: "Roy Martin"
+date: "`r format( Sys.time(), '%B %d, %Y' )`"
+output:
+  html_notebook:
+    code_folding: show
+    depth: 2
+    font_size: 14
+    highlight: pygments
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+# Background and model
+To help describe the model, we'll use a hypothetical scenario. For this scenario, imagine that we are looking to estimate the prevalence of viral RNA in wastewater over discrete time for a specific location in a wastewater network. Maybe note now that we could substitute the concept of space for time in this example (e.g., several site locations) and the model structure would be the same. We could also readily expand our the basic model described herein to include both space and time. For this exercise, though, I think that would be unecessarily complicating. So, again, lets imagine a single site that we'll sample multiple times. For simplicitiy, lets also imagine that there is a single source at this discharge location from which to collect samples, such as a reservoir or well from which we can scoop other otherwise transfer volumes of wastewater into sample bottles. 
+
+So we have $i \in 1,...,I$ equally-spaced points in time over which we intend to estimate the prevalence of the RNA/DNA. Lets say we're interested in $I=30$ sequential days. Next, for our water sampling method, we're going to utilize $j \in 1,...,J$ replicate grab samples from the reservoir each day. Lets go with $J=5$ 500 mL wastewater samples per occasion, $i$; so we'll have to use $I \times J = 30 * 5 = 150$ water bottles over the course of the study. Then, we'll need to conduct $k \in 1,...,K$ qPCR runs per each of the water samples we grab. Lets say we're going to do $K=4$ replicate qPCR analyses for each water sample $j$, where maybe we divide each 500 mL sample equally among $K=4$ 125 mL samples for filtering and extraction. So, to summarize we will have 4 qPCR replicates, which are nested in each of 5 replicate water samples, which are nested in each of 30 days at this one sampling reservoir. So, our $n$ as summed across the observation level (qPCR reps) is $n = I \times J \times K = 4*5*30 = 600$.
+
+Now we'll use these hypothetical data dimensions to simulate a hypothetical dataset using a multilevel occupancy model as described in [@Schmidt_etal_2013] and earlier by [@Nichols_etal_2008]. We are ignoring any hypothetical covarites in this example (e.g., measured water chemistry at time of sampling), but we'll leave room in our model below for them to be included them later, if desired. The basic model here consists of a sequence of three coupled Bernoulli trials for describing the three dimensional array of nested data, $y_{ijk}$, where we have observed detections ($y_{ijk} = 1$) or not ($y_{ijk} = 0$) for each PCR replicate $k$ nested in each water sample $l$ nested in each day $i$ at our fictional site site. 
+
+The model can be more formally described such that:
+
+$$z_i \sim Bernoulli(\psi_i)$$
+$$a_{ij} | z_i \sim Bernoulli( z_i\theta_{ij} )$$
+
+$$y_{ijk} | a_{ij} \sim Bernoulli( a_{ij} p_{ijk} )$$
+
+Here, $z_i$ represents a latent random variable defining the true state of presence ($z_i = 1$) or absence ($z_i = 0$) of RNA/DNA in the sampling reservoir at time $i$. In our hypothetical, we're confining the period of actual sampling to be contained within a day; and we're assuming this probably snapshot (within a day) sample is capable of representing the $z$ state for that 'day'. This latent state $z$ is assumed Bernoulli distributed and governed by the parameter $\psi$, or the "occupancy probability" parameter. In the notation above, we make clear that the occupancy probability parameter is mapped to each day (i.e., $\psi_i$). This is just to indicate that further constraints could be applied to this parameter (e.g., linear predictor with covariates).
+
+The next state parameter down the hierarchy is $a_{ij}$, which is conditional on $z_i$; meaning that if $z_i = 0$ then $a_{ij}$ also collapses to zero. Here, $a_{ij}$ is typically described as the latent state (i.e, $a_{ij} \in \{0,1\}$) of availability (e.g., of RNA in a water sample $j$ on a specific day $i$). That is, whether or not there is RNA in the water sample that is available for detection via qPCR. This availability is clearly conditional on the state of occupancy for the reservoir from which it was taken. If the reservoir is occupied (i.e, $z_i = 1$) with RNA/DNA at some concentration, then $a_{ij}$ is determined by a Bernoulli trial and according to the parameter $\theta$, or the "availability probability". 
+
+Finally, $y_{ijk}$ is the three-dimensional array containing the observed states of detection, $y_{ijk}  \in \{0,1\}$; or the binary detection data that we've observed and recoreded at the level of the individual qPCR samples. These observed states are also conditional on the latent availability state, $a_{ij}$, in the way that $a_{ij}$ is conditional on $z_i$. Thus, it is also conditional $z_i$, since $a_{ij}$ is conditional on $z_i$. So, if $a_{ij} = 0$, then $y_{ijk}$ is necessarily zero. The observations are again assumed Bernoullli distributed; this time according the the parameter $p_{ijk}$, which is the probability of detection via qPCR for rep $k$, from water sample $j$, and day $i$.
+
+So, from an estimation standpoint, we have three important parameters, $\psi_i$, $\theta_{ij}$, and $p_{ijk}$, which we would like to estimate by conditioning on the observations, $y_{ijk}$, using fully Bayesian methods. Again, these are, respectively, the probability of occupancy, the probability of availability (given occupied), and the probability of detection via PCR (given availability). Maybe more practically stated for our hypothetical case: $\psi_i$ is the probability that the RNA/DNA was in the sample reservior on a particular day; $\theta_{ij}$ is the probability of capturing that RNA/DNA in a water sample, given that it was in the sample reservoir that day; and $p_{ijk}$ is the probability of detecting that RNA/DNA in a PCR replicate, given that it was in the water sample. 
+
+The glaring assumption of this model is that there are no false positives. This is maybe a reasonable assumption for qPCR in terms of the measurment instrument itself working faithfully. It is also likely a reasonable assumption for the laboratory component, where we are essentially assuming no contamination or cross-reactivity. Outside the laboratory, false positives can arise in the field due to contamination during sampling, travel or transfer. So, aside from building a different model that relaxes this assumption, the practical thing to do here with regard to false positives is probably to closely monitor for contamination in the lab, field, and transport (e.g., blanks, etc). 
+
+# Setup
+Lets now set up our R environment to run the simulation.
+
+```{r setup, warning=FALSE, message=FALSE}
+library(ggplot2)
+library(ggExtra)
+library(gridExtra)
+library(truncnorm)
+library(stringr)
+library(tidyverse)
+library(rstan)
+library(loo)
+library(bayesplot)
+library(tidybayes)
+
+options( mc.cores = parallel::detectCores() )
+rstan_options( auto_write = TRUE )
+options( loo.cores = parallel::detectCores() )
+
+options( max.print = 9999 )
+```
+
+# Prior predictive simulation
+Now we'll run some simulations from this model using our prior beliefs about the values of the paramters $\psi$, $\theta$, and $p$. We're taking a Bayesian perspective, so we are going to assign each parameter a probability distribution that reflects these prior beliefs. After we settle on these priors, we can then do a "push forward" of our model, which will effectively simulate draws from the *prior predictive distribution*.
+
+## Set up conditions
+Lets first set up our hypothetical data dimensions in terms of the number of dates, water samples, pcr replicates, and simulations. 
+
+```{r simulation_multilevel_occ}
+ndate <- 30 # number of hypothetical dates in study (could also be sites)
+nsamp <- 5 # number of hypothetical replicate water samples per site
+nrep <- 4 # number of hypothetical replicate pcr samples per water sample (per site)
+nsim <- 1e3 # number of simulated draws from joint prior predictive distribution
+```
+
+So, we're going to sample on `r ndate` consecutive days. We're going to take `r nsamp` water samples on each of those days; and we're going to split each of those water samples into `r nrep` PCR replicates. Finally, we're going to simulate `r nsim` draws from the prior predictive distribution.
+
+Now we need to set up 'containers' for the simulation. That is, make some objects in R for storing for the simulated values of $z_i$, $a_{ij}$, $y_{ijk}$, etc. Note that these containers all have one more dimension than mentioned in the model description above. The added dimesion is for holding the simulated draws from the prior predictive distribution. In this case, that last dimension will always be of size = `r nsim`, which is the number of draws we decided (above) to use for our simulation. This number could just as well be $1e4$ or even something huge, but anything over a few hundred should be fine for the purposes of getting an understanding the statistical properties of the posterior. 
+
+```{r containers_multilevel_occupancy}
+# make an array placeholder for siumation, s, of the latent occupancy state, z, for each site, i
+z_i <- matrix( NA, nrow = ndate, ncol = nsim )
+
+# make an array placeholder for latent availability state, a, for water rep, j, in site i
+a_ij <- array( NA, dim = c( ndate, nsamp, nsim ) )
+
+# make an array placeholder for simulation, s, of oserved detections, y, for each pcr rep, k, in water sample, j, and site i
+y_ijk <- array( NA, dim = c( ndate, nsamp, nrep, nsim ) )
+
+# make an array placeholder for simulation, s, of the paramter psi or P( site occupied )
+psi_i <- array( NA, dim = c( ndate, nsim ) )
+
+# make an array placeholder for simulation, s, of the parameter theta or P( available in water sample | site occupied )
+theta_ij <- array( NA, dim = c( ndate, nsamp, nsim ) )
+
+# make an array placeholder for simulation, s, of the paramter p or P( detect in PCR rep | available in water sample )
+p_ijk <- array( NA, dim = c( ndate, nsamp, nrep, nsim ) )
+
+```
+
+## Priors for $\psi$, $\theta$, and $p$
+In the following, we'll choose priors for $\psi_i$, $\theta_{ij}$, and $p_{ijk}$. 
+
+### $\psi$
+As mentioned briefly above, our indexing indicates that we've left room for extending the models for these parameters with linear constraints. In this case, we're going to employ a linear predictor for each parameter with a logit link function. So, for example, our model for $\psi_i$, will be:
+
+$$logit( \psi_i ) = \alpha_\psi$$
+where $\alpha_\psi$ is just the intercept for the linear predictor of $\psi_i$ on the log-odds scale. Thus, in this intercept-only model, each $i$ of $\psi_i$ takes on the estimated value of the intercept parameter $\alpha_\psi$, which is back-transformed to the probability scale via the inverse-logit function. So, equivalently:
+
+$$\psi_i = \frac{ 1 }{ 1 + exp( - \alpha_\psi ) }$$
+
+Therefore, we are actually placing a prior on $\alpha_\psi$ here, which then determines $\psi_i$. We could place an equivalent prior on $\psi_i$ directly and get the same answer in this intercept-only case, but again we're using this particular structure with the linear predictor now so it can be expanded later to include covariates, random effects, etc.
+
+So, with that, we're going to choose a "normal" prior for this intercept parameter, where:
+
+$$\alpha_\psi \sim N( \mu_{\alpha_{\psi}}, \sigma_{\alpha_{\psi}} )$$
+
+This is to say that our prior for this intercept parameter for the linear predictor of $\psi_i$ is "normally distributed with location = $\mu_{\alpha_{\psi}}$, and scale = $\sigma_{\alpha_{\psi}}$". With regard to location, recall that $\alpha_\psi = 0$ would correspond to $\psi = logit^{-1}( \alpha_\psi ) =0.5$ on the probability scale. So if our normal prior is centered such that $\mu_{\alpha_{\psi}}=0$, we're thinking that the most likely true value for $\psi_i$ is 0.5. Practically, this would suggest that we think that our sampling site is occupied with the target RNA/DNA about 50% or half of the days. Or put another way, we think there is about a 50% chance that the target is present at some detectable concentration in the sample site on any given day. 
+
+To further flesh out our prior, though, we'll want to think about how certain we are about that location parameter and adjust $\sigma_{\alpha_{\psi}}$ accordingly. In practice, this process of choosing useful priors is critical and should employ as much domain expertise as possible in order to learn as much as possible from the data/study.
+
+So, lets now choose $\mu_{\alpha_{\psi}}$ and $\sigma_{\alpha_{\psi}}$ for this exercise and simulate the `r nsim` draws from the prior.
+
+```{r prior_psi_logodds, fig.align='center', fig.width=6, fig.height=4}
+# prior for log-odds-scale intercept parameter for psi
+loc_a_psi = -3
+scale_a_psi = 1
+a_psi <- rnorm( nsim, loc_a_psi, scale_a_psi )
+```
+
+So, we've chosen $\mu_{\alpha_{\psi}} = `r loc_a_psi`$ and $\sigma_{\alpha_{\psi}} = `r scale_a_psi`$. Therefore, our prior is centered over $\alpha_\psi = `r round( loc_a_psi, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_\psi ) = `r round( plogis( loc_a_psi ), 3 )`$ on the probability scale. Along with the scale we've chosen, this prior places 90% of the density of $\alpha_\psi$ between about `r round( qnorm( 0.05, loc_a_psi, scale_a_psi ), 3)` and `r round( qnorm( 0.05, loc_a_psi, scale_a_psi ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_psi, scale_a_psi ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_psi, scale_a_psi ) ), 3)` on the probability scale. Here's a vizualization of the prior on the log-odds scale.
+
+```{r prior_psi_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = seq( - 10, 10, 0.01 ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_psi, scale_a_psi ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( alpha[psi] ) )
+```
+
+And on the probability scale.
+```{r prior_psi_prob, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_psi, scale_a_psi ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[psi] ) ) ) )
+```
+
+And, finally, here are our simulated draws for this prior on the probability scale.
+```{r prior_psi_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+# plot it
+ggplot( tibble( x = plogis( a_psi ) ), 
+        aes( x = x ) ) + 
+  geom_histogram( binwidth = 0.01 ) + 
+  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[psi] ) ) ) ) +
+  scale_x_continuous( limits = c( 0, 1 ) )
+```
+
+### $\theta$
+Now lets run through the same process for $\theta_{ij}$. Again, we'll use the logit-link linear predictor and an intercept-only model with the intercept parameter $\alpha_\theta$, where:
+
+$$logit( \theta_{ij} ) = \alpha_\theta$$
+
+So, well choose prior values for $\mu_{\alpha_\theta}$ and $\sigma_{\alpha_\theta}$.
+
+```{r prior_theta_logodds, fig.align='center', fig.width=6, fig.height=4}
+# prior for log-odds-scale intercept parameter for psi
+loc_a_theta = -1
+scale_a_theta = 1
+a_theta <- rnorm( nsim, loc_a_theta, scale_a_theta )
+```
+
+We've chosen $\mu_{\alpha_\theta} = `r loc_a_theta`$ and $\sigma_{\alpha_\theta} = `r scale_a_theta`$. Therefore, our prior is centered over $\alpha_\theta = `r round( loc_a_theta, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_\theta ) = `r round( plogis( loc_a_theta ), 3 )`$ on the probability scale. This prior places 90% of the density of $\alpha_\theta$ between about `r round( qnorm( 0.05, loc_a_theta, scale_a_theta ), 3)` and `r round( qnorm( 0.05, loc_a_theta, scale_a_theta ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_theta, scale_a_theta ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_theta, scale_a_theta ) ), 3)` on the probability scale. Here's a vizualization of the prior on the log-odds scale.
+
+```{r prior_theta_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = seq( - 10, 10, 0.01 ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_theta, scale_a_theta ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( alpha[theta] ) )
+```
+
+On the probability scale.
+
+```{r prior_theta_prob, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_theta, scale_a_theta ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[theta] ) ) ) ) +
+  scale_x_continuous( limits = c( 0, 1 ) )
+```
+
+And, finally, our simulated draws from this prior on the probability scale.
+```{r prior_theta_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+# plot it
+ggplot( tibble( x = plogis( a_theta ) ), 
+        aes( x = x ) ) + 
+  geom_histogram( binwidth = 0.01 ) + 
+  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[theta] ) ) ) ) +
+  scale_x_continuous( limits = c( 0, 1 ) )
+```
+
+### $p$
+Now lets do $p_{ijk}$. Again, we'll use the logit-link linear predictor and an intercept-only model with the intercept parameter $\alpha_p$, where:
+
+$$logit( p_{ijk} ) = \alpha_p$$
+
+Next, choose prior values for $\mu_{\alpha_p}$ and $\sigma_{\alpha_p}$.
+
+```{r prior_p_logodds, fig.align='center', fig.width=6, fig.height=4}
+# prior for log-odds-scale intercept parameter for p
+loc_a_p = 1
+scale_a_p = 1
+a_p <- rnorm( nsim, loc_a_p, scale_a_p )
+```
+
+We've chosen $\mu_{\alpha_p} = `r loc_a_p`$ and $\sigma_{\alpha_p} = `r scale_a_p`$. Therefore, our prior is centered over $\alpha_p = `r round( loc_a_p, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_p ) = `r round( plogis( loc_a_p ), 3 )`$ on the probability scale. This prior places 90% of the density of $\alpha_p$ between about `r round( qnorm( 0.05, loc_a_p, scale_a_p ), 3)` and `r round( qnorm( 0.05, loc_a_p, scale_a_p ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_p, scale_a_p ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_p, scale_a_p ) ), 3)` on the probability scale. Here's a vizualization of the prior on the log-odds scale.
+
+```{r prior_p_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = seq( - 10, 10, 0.01 ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_p, scale_a_p ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( alpha[p] ) )
+```
+
+On the probability scale.
+
+```{r prior_p_prob, fig.align='center', fig.width=6, fig.height=4}
+# plot it
+ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_p, scale_a_p ) ), 
+        aes( x = x, y = y ) ) + 
+  geom_line() + 
+  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[p] ) ) ) ) +
+  scale_x_continuous( limits = c( 0, 1 ) )
+```
+
+And, finally, our simulated draws from this prior on the probability scale.
+```{r prior_p_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+# plot it
+ggplot( tibble( x = plogis( a_p ) ), 
+        aes( x = x ) ) + 
+  geom_histogram( binwidth = 0.01 ) + 
+  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[p] ) ) ) ) +
+  scale_x_continuous( limits = c( 0, 1 ) )
+```
+
+## Simulate draws
+Now we can actually simulate draws from the joint prior predictive distribution. We'll use our draws from the priors above above and then push forward or loop through the likelihood.
+
+```{r sim_multilevel_occupancy}
+# Run the prior predictive simulation
+for ( i in 1:ndate ) {
+  psi_i[ i, ] <- plogis( a_psi ) # back-transform linear predictor for psi
+  z_i[ i , ] <- rbinom( nsim, 1, psi_i[ i, ] )
+  
+  for ( j in 1:nsamp ) {
+    theta_ij[ i , j, ] <- plogis( a_theta ) # back-transform linear predictor for theta
+    a_ij[ i, j, ] <- rbinom( nsim, 1, z_i[ i, ] * theta_ij[ i, j, ] )
+   
+    for ( k in 1:nrep ) {
+      p_ijk[ i, j, k, ] <- plogis( a_p ) # back-transform linear predictor for p
+      y_ijk[ i, j, k, ] <- rbinom( nsim, 1, a_ij[ i, j, ] * p_ijk[ i, j, k, ] )
+      }
+    }
+  }
+```
+
+### Freqency of occupancy
+We can then use these draws from the prior predictive distribution to examine some of the practical implications of our priors and the model. For example, we can plot the prior predictive distribution of the number of days the sampling site is expected to be occupied.
+
+```{r distribution_true_occupancy}
+qplot( x = apply( z_i, 2, sum ), binwidth = 0.5 ) + 
+  expand_limits( x = c( 0, 30 ) ) +
+  xlab( paste0("Number of \"occupied\" days (", ndate, "\ ", "possible)" ) ) +
+  ylab( paste0( "Number of simulations (", nsim, "\ possible)" ) )
+```
+
+### Frequency of detections
+Or we can plot the prior predictive distribution of the total number of qPCR runs returning a positive result (out of `r ndate * nsamp * nrep` possible for each simulation).
+
+```{r distribution_pcr_detects}
+qplot( x = apply( y_ijk, 4, sum ) / (ndate * nsamp * nrep ), binwidth = 0.01 ) + 
+  expand_limits( x = c( 0, 1 ) ) +
+  xlab( paste0( "Proportion of\ " , ndate * nsamp * nrep, "\ total PCR samples as positive detections" ) ) +
+  ylab( paste0( "Number of simulations (", nsim, "\ possible)" ) )
+```
+
+### Replicate datasets
+We could look at it another way by, say, visualizing replicated hypothetical datasets from the prior predictive distribution. Lets draw several of the replicate 'datasets' at random from the prior predictive distribution and plot them.
+
+```{r frequency_yrep}
+n_yrep <- 20 # number of replicate datasest to draw
+sim_draw <- sample( 1:nsim, n_yrep, replace = F ) # assign random draw
+
+psi_rep <- psi_i[ , sim_draw ] # psi for datasets drawn
+theta_rep <- theta_ij[ , , sim_draw ] # theta for datasets drawn
+p_rep <- p_ijk[ , , , sim_draw ] # p for datasets drawn
+y_rep <- y_ijk[ , , , sim_draw ] # "oberved" y for each of the n_yrep datasets
+
+# create empty list of dataframes to store y_rep data in frequency of pcr detects format
+y_rep_freq <- vector( 'list', n_yrep )
+
+# draw sample of datasets and re-format for plot
+for( i in 1:n_yrep ){
+ y_rep_freq[[ i ]] <- data.frame( t( apply( y_rep[ , , , i ], 1, rowSums ) ) ) %>%
+  gather( variable, value ) %>%
+  mutate( samples = rep( seq(1, nsamp, 1), ndate ) ) %>%
+  rename( day = variable, 
+          pcr_detects = value,
+          water_rep = samples ) %>%
+  mutate( day = rep( seq( 1, ndate, 1 ), each = nsamp ) )
+}
+
+# build a plot function and color palette
+myfill <- colorRampPalette( rev( brewer.pal( nrep, "Spectral" ) ) )
+
+
+plot_yrep <- function( data, rep ){
+  ggplot( data[[ rep ]], aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+    theme_bw() +
+    geom_point( alpha = 0.6 ) + 
+    scale_size_identity( "PCR detects" ) + 
+    scale_fill_gradientn( colours = myfill ) +
+    scale_x_discrete( "Water sample", limits = seq( 1, nsamp, 1 ) ) + 
+    scale_y_discrete( "Day", limits = seq( 1, ndate, 1 ) ) + 
+    theme( axis.title.x = element_text( size=10, vjust=1 ),
+           axis.title.y = element_text( size=10, vjust=1 ),
+           axis.text.y = element_text( size=8, angle=360 ), 
+           axis.text.x = element_text( angle=360, size=8, vjust=0.2 ),
+           legend.position = "none",
+           plot.title = element_text( size = 8, face = "bold" )
+           ) +
+    ggtitle( bquote( list( psi == .( round( psi_rep[ 1, rep ], 2 ) ),
+                           theta == .( round( theta_rep[ 1, 1, rep ], 2 ) ),
+                           p == .( round( p_rep[ 1, 1, 1, rep ], 2 ) ) ) ) )
+ }
+
+# make up dataset with all combinations for legend
+y_rep_legend <- data.frame( day = rep( seq( 1, ndate, 1 ), each = nsamp ),
+                            water_rep = rep( seq( 1, nsamp, 1 ), ndate ),
+                            pcr_detects = sample( seq( 0, nrep, 1 ), nsamp * ndate , replace = T ) )
+
+# make fake plot with legend to extract
+p_legend <- ggplot( y_rep_legend, aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+  theme_bw() +
+  geom_point( alpha = 0.6 ) + 
+  scale_size_area( max_size = 4 ) + 
+  scale_fill_gradientn( colours = myfill ) +
+  theme(legend.title = element_text( size=10 ),
+        legend.text = element_text( size=10 ),
+        legend.position = "top",
+        legend.margin = margin( 0, 0, 0, 0 ),
+        legend.box.margin = margin( -10, 0, -10, -5 )
+        )
+
+# fn to extract legend
+get_legend <- function( myggplot ){
+  tmp <- ggplot_gtable( ggplot_build( myggplot ) )
+  leg <- which( sapply( tmp$grobs, function( x ) x$name ) == "guide-box" )
+  legend <- tmp$grobs[[ leg ]]
+  return( legend )
+}
+
+p_legend <- get_legend( p_legend)
+
+plot_grid <- lapply( seq( 1, n_yrep, 1 ), plot_yrep, data = y_rep_freq )
+
+plot_out <- arrangeGrob( 
+  p_legend,
+  do.call( arrangeGrob, c( plot_grid, ncol = 5 ) ),
+  ncol = 1,
+  nrow = 2,
+  heights = c( 0.04, 0.96 ) )
+```
+
+Specically, we'll plot `r n_yrep` of them, along with the values of the parameters they were generated from. Note that the parameters ($\psi$, $\theta$, $p$) are fixed for each of the 'datasets' in the plot, but each of those panels is only one probabilistic realization from the potential set generated from that particular configuration of the parameters.
+
+```{r frequency_plot, fig.height= 20, fig.width= 10, fig.align='center'}
+plot( plot_out )
+```
+
+It may be informative to generate multiple realizations from a single configuration of the paramters. We'll now try that by taking one of the draws from the prior for the three parameters and plotting some hypothetical datasets based on that configuration. Another way to think of it might be to think of the prior for each paramter as just being a point value (or otherwise very strong). 
+
+So, lets just take the last configuration of paramters from our previous plot, where we have $\psi =$ `r round( psi_i[1, sim_draw[ n_yrep ]], 2 )`, $\theta =$ `r round( theta_ij[1, 1, sim_draw[ n_yrep ]], 2 )`, and $p =$ `r round( p_ijk[1, 1, 1, sim_draw[ n_yrep ]], 2 )`.
+
+
+```{r frequency_y_i_rep}
+n_y_i_rep <- 20 # number of replicate datasest to draw
+
+# make containers
+z_i_fix <- matrix( NA, ndate, n_y_i_rep )
+a_ij_fix <- array( NA, dim = c( ndate, nsamp, n_y_i_rep ) )
+y_rep_fix <- array( NA, dim = c( ndate, nsamp, nrep, n_y_i_rep ) )
+
+# Run the prior predictive simulation
+for ( i in 1:ndate ) {
+  z_i_fix[ i , ] <- rbinom( n_y_i_rep, 1, psi_i[ 1, sim_draw[ n_yrep ] ] )
+  
+  for ( j in 1:nsamp ) {
+    a_ij_fix[ i, j, ] <- rbinom( n_y_i_rep, 1, z_i_fix[ i, ] * theta_ij[ 1, 1, sim_draw[ n_yrep ] ] )
+   
+    for ( k in 1:nrep ) {
+      y_rep_fix[ i, j, k, ] <- rbinom( n_y_i_rep, 1, a_ij_fix[ i, j, ] * p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ] )
+      }
+    }
+  }
+# create empty list of dataframes to store y_rep data in frequency of pcr detects format
+y_rep_freq <- vector( 'list', n_y_i_rep )
+
+# draw sample of datasets and re-format for plot
+for( i in 1:n_y_i_rep ){
+ y_rep_freq[[ i ]] <- data.frame( t( apply( y_rep_fix[ , , , i ], 1, rowSums ) ) ) %>%
+  gather( variable, value ) %>%
+  mutate( samples = rep( seq(1, nsamp, 1), ndate ) ) %>%
+  rename( day = variable, 
+          pcr_detects = value,
+          water_rep = samples ) %>%
+  mutate( day = rep( seq( 1, ndate, 1 ), each = nsamp ) )
+}
+
+# build a plot function and color palette
+myfill <- colorRampPalette( rev( brewer.pal( nrep, "Spectral" ) ) )
+
+
+plot_yrep <- function( data, rep ){
+  ggplot( data[[ rep ]], aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+    theme_bw() +
+    geom_point( alpha = 0.6 ) + 
+    scale_size_identity( "PCR detects" ) + 
+    scale_fill_gradientn( colours = myfill ) +
+    scale_x_discrete( "Water sample", limits = seq( 1, nsamp, 1 ) ) + 
+    scale_y_discrete( "Day", limits = seq( 1, ndate, 1 ) ) + 
+    theme( axis.title.x = element_text( size=10, vjust=1 ),
+           axis.title.y = element_text( size=10, vjust=1 ),
+           axis.text.y = element_text( size=8, angle=360 ), 
+           axis.text.x = element_text( angle=360, size=8, vjust=0.2 ),
+           legend.position = "none",
+           plot.title = element_text( size = 8, face = "bold" )
+           ) +
+    ggtitle( bquote( list( psi == .( round( psi_i[ 1, sim_draw[ n_yrep ] ], 2 ) ),
+                           theta == .( round( theta_ij[ 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
+                           p == .( round( p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ) ) ) )
+ }
+
+# make up dataset with all combinations for legend
+y_rep_legend <- data.frame( day = rep( seq( 1, ndate, 1 ), each = nsamp ),
+                            water_rep = rep( seq( 1, nsamp, 1 ), ndate ),
+                            pcr_detects = sample( seq( 0, nrep, 1 ), nsamp * ndate , replace = T ) )
+
+# make fake plot with legend to extract
+p_legend <- ggplot( y_rep_legend, aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+  theme_bw() +
+  geom_point( alpha = 0.6 ) + 
+  scale_size_area( max_size = 4 ) + 
+  scale_fill_gradientn( colours = myfill ) +
+  theme(legend.title = element_text( size=10 ),
+        legend.text = element_text( size=10 ),
+        legend.position = "top",
+        legend.margin = margin( 0, 0, 0, 0 ),
+        legend.box.margin = margin( -10, 0, -10, -5 )
+        )
+
+# fn to extract legend
+get_legend <- function( myggplot ){
+  tmp <- ggplot_gtable( ggplot_build( myggplot ) )
+  leg <- which( sapply( tmp$grobs, function( x ) x$name ) == "guide-box" )
+  legend <- tmp$grobs[[ leg ]]
+  return( legend )
+}
+
+p_legend <- get_legend( p_legend)
+
+plot_grid <- lapply( seq( 1, n_y_i_rep, 1 ), plot_yrep, data = y_rep_freq )
+
+plot_out <- arrangeGrob( 
+  p_legend,
+  do.call( arrangeGrob, c( plot_grid, ncol = 5 ) ),
+  ncol = 1,
+  nrow = 2,
+  heights = c( 0.04, 0.96 ) )
+```
+
+```{r frequency_plot_fix, fig.height= 20, fig.width= 10, fig.align='center'}
+plot( plot_out )
+```
+
+# A model in Stan
+Now let use this model simulation to check our computational algorithm that we would use for Bayesian inference given real data (i.e., Stan). We'll code the Stan model, then we'll select a "dataset" from the simulation above and see if our Stan program recovers the known parameters.
+
+We'll first code up our Stan model.
+
+## Stan code
+Explanation of this code may come later.
+
+```{stan stan_mocc_model, output.var = 'mocc'}
+data {
+  int< lower = 1 > ndate;
+  int< lower = 1 > nsamp;
+  int< lower = 1 > nrep;
+  int< lower = 0, upper = 1 > y[ ndate, nsamp, nrep ];
+  int< lower = 1 > n_possible;
+  matrix< lower = 0, upper = 1 >[ n_possible, nsamp ] alpha_potential;
+}
+
+transformed data {
+  int< lower = 0, upper = 1 > known_present[ ndate ];
+  int< lower = 0, upper = 1 > known_available[ ndate, nsamp ];
+  for ( i in 1:ndate ) {
+    known_present[ i ] = 0;
+    for ( j in 1:nsamp ) {
+      known_available[ i, j ] = 0;
+      for ( k in 1:nrep ) {
+        if ( y[ i, j, k ] == 1) {
+         known_present[ i ] = 1;
+         known_available[ i, j ] = 1;
+        }
+      }
+    }
+  }
+}
+
+parameters {
+  real a_psi ;
+  real a_theta;
+  real a_p;
+}
+
+transformed parameters {
+  vector[ ndate ] log_lik;
+  real< lower = 0, upper = 1 > psi[ ndate ];
+  real< lower = 0, upper = 1 > theta[ ndate, nsamp ];
+  real< lower = 0, upper = 1 > p[ ndate, nsamp, nrep ];
+  
+  // linear predictor
+  for( i in 1:ndate ){
+    psi[ i ] = inv_logit( a_psi ); // linear predictor (logit scale) for psi
+    for ( j in 1:nsamp ){
+      theta[ i, j ] = inv_logit( a_theta ); // linear predictor (logit scale) for theta
+      for( k in 1:nrep ){
+        p[ i, j, k ] = inv_logit( a_p ); // linear predictor (logit scale) for p
+        } // k
+      } // j
+    } // i
+  
+  {
+    vector[ nsamp ] tmp_lp;
+    matrix[ n_possible, nsamp ] tmp_poss;
+    vector[ n_possible + 1 ] sum_poss;
+    
+    for ( i in 1:ndate ) {
+      if ( known_present[ i ] ) {
+        for ( j in 1:nsamp ) {
+           if ( known_available[ i, j ] ) {
+             // present in site and available for water sample
+             tmp_lp[ j ] = log( theta[ i, j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] );
+          
+             } else {
+               // present, possibly unavailable for water sample
+               tmp_lp[ j ] = log_sum_exp(
+                 log( theta[ i, j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] ), 
+                 log1m( theta[ i, j ] )
+                 );
+               }
+        } // j( 1 )
+        log_lik[ i ] = log( psi[ i ] ) + sum( tmp_lp );
+      } else {
+        // could be present or absent (was never detected)
+        // and there are 2^ntime possible combinations
+        // of alpha_{i, j} that are relevant if z_i = 1
+        for ( jj in 1:n_possible ) {
+          for ( j in 1:nsamp ) {
+            if ( alpha_potential[ jj, j ] == 0 ) {
+              // not available
+              tmp_poss[ jj, j ] = log1m( theta[ i, j ] );
+            } else {
+              // available but not detected
+              tmp_poss[ jj, j ] = log( theta[ i , j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] );
+            }
+          }
+          sum_poss[ jj ] = log( psi[ i ] ) + sum( tmp_poss[ jj, ] );
+        } // j( 2 )
+        sum_poss[ n_possible + 1 ] = log1m( psi[ i ] );
+        log_lik[ i ] = log_sum_exp( sum_poss );
+      }
+    } // i
+  }
+}
+
+model {
+  // priors
+  target += normal_lpdf( a_psi | -3, 1 );
+  target += normal_lpdf( a_theta | -1, 1 );
+  target += normal_lpdf( a_p | 1, 1 );
+  
+  // add likelihood
+  target += sum( log_lik );
+}
+```
+
+## Pick fake dataset for Stan
+Lets just pick the last dataset from the simulation with known parameters above. We have to creat a variable called 'alpha_potential' to account for all the potential combinations of $a_{ij}$ that could lead to an all-zero observation history. This is in order to integrate out the latent discrete parameters (i.e., $z_i$, and $a_{ij}$) for our Stan program because Stan doesn't allow discrete paramters. This marginalization is actually optimal even in BUGS, but we'll save the explanation for later. 
+
+In any case, we also create a data list for our Stan program. 
+
+```{r stan_code}
+# potential combinations of alpha that can lead to all-zero capture history
+alpha_potential <- expand.grid( rep( list( c( 0, 1 ) ), nsamp ) )
+
+stan_d <- list(ndate = ndate, 
+               nsamp = nsamp, 
+               nrep = nrep, 
+               y = y_rep_fix[ , , , 1 ], 
+               n_possible = 2 ^ nsamp, 
+               alpha_potential = alpha_potential)
+
+#print( stan_d )
+```
+
+## Fit Stan model
+Now we can fit the model to the data with Stan in R.
+
+```{r fit_mod1}
+fit_mod1 <- sampling(
+  object = mocc,
+  data = stan_d,
+  chains = 4,
+  iter = 2000,
+  cores = 4,
+  thin = 1
+  )
+```
+
+## Print posterior summary
+And we'll print the posterior estimates. Note the indexing on "psi", "theta" and "p", We chose just the first index for each of these because all the others are the same due to this being an "intercept only" model. With a more complex linear predictor, each of these parameters could vary among sites, samples and/or reps; and in that case we might choose to print more dimensions. More likely, though, we'd be more interested in the logit scale parameters in that case. Nevertheless, for this simpler model we'll print both the logit scale intercept parameters and each of $\psi$, $\theta$, and $p$.
+
+```{r print_mod1}
+print( fit_mod1, 
+       pars = c( "a_psi", "a_theta", "a_p", "psi[1]", "theta[1,1]", "p[1,1,1]" ), 
+       digits_summary = 3 )
+```
+
+We can also plot the posteriors and overlay the known parameters to assess recovery.
+
+```{r plotting_params}
+#first extract posteriors
+posteriors_fit <- rstan::extract( fit_mod1 )
+
+#plot
+qplot( x = posteriors_fit$psi[ ,1 ], geom = 'histogram', binwidth = 0.01 ) +
+  geom_vline( xintercept = psi_i[ 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  xlab( expression( psi ) )
+
+qplot( x = posteriors_fit$theta[ ,1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
+  geom_vline( xintercept = theta_ij[ 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  xlab( expression( theta ) )
+
+qplot( x = posteriors_fit$p[ , 1, 1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
+  geom_vline( xintercept = p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  xlab( expression( p ) )
+```
