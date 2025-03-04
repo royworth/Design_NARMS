@@ -3,14 +3,14 @@ title: "NARMS qPCR design: multilevel occupancy"
 author: "Roy Martin"
 date: "`r format( Sys.time(), '%B %d, %Y' )`"
 output:
-  html_notebook:
-    toc: yes
-    toc_depth: 4
-    toc_float: yes
-    code_folding: show
-    font_size: 14
-    number_sections: yes
-    theme: simplex
+  github_document:
+    number_sections: TRUE
+    df_print: "tibble"
+    math_method: 
+      engine: webtex
+    #  url: https://latex.codecogs.com/svg.image?
+    html_preview: TRUE
+    keep_html: TRUE
 ---
 # Background and model
 For this scenario, imagine that we are looking to estimate the prevalence of a specific gene variant for 30 sites, visited once every three weeks for 17 weeks (roughly 1 year). So we have $t \in 1,...,T=17$ roughly equally-spaced points in time for which we intend to estimate the state of occupancy for each of the $i \in 1,..., S=30$ sites. For our water sampling method, we're also going to utilize $j \in 1,...,J=5$ replicate grab samples from a site on each visit; so we'd have to use $T \times J = 17 * 5 = 85$ water bottles over the course of the study for a single site in this scenario. Then, we'd conduct $k \in 1,...,K$ replicate qPCR runs per each of the water samples grabbed. Lets say we're going to do $K=4$ replicate qPCR analyses for each water sample $j$, where maybe we divide each, say, 500 mL sample equally among $K=4$ 125 mL samples for filtering and extraction. To summarize, we'd have 4 qPCR replicates, nested in each of 5 replicate water samples, which are nested in each of 17 days for each of 30 sampling sites. So, our $N$ as summed across the observation level (qPCR reps) is $N = K \times J \times T \times S = 4 \times 5 \times 17 \times 30 = 10200$. This is a huge $N$ and maybe unfeasible, but it is a place to start for illustrating the model and getting a general feel for some of the inherent sources of uncertainty in this type of study.
@@ -738,7 +738,7 @@ Specically, we'll plot `r n_yrep` of them, along with the values of the paramete
 plot( plot_out )
 ```
 
-It may be informative to generate multiple realizations from a single configuration of the paramters. We'll now try that by taking one of the draws from the prior for the three parameters and plotting some hypothetical datasets based on that configuration. Another way to think of it might be to think of the prior for each paramter as just being a point value (or otherwise very strong). 
+It may be informative to generate multiple realizations from a single configuration of the paramters. We'll now try that by taking one of the draws from the prior for the three parameters and plotting some hypothetical datasets based on that configuration. Another way to think of it might be to think of the prior for each parameter as just being a point value (or very strong). 
 
 So, lets just take the last configuration of parameters from our previous plot, where we have $\psi =$ `r round( psi_it[1, 1, sim_draw[ n_yrep ]], 2 )`, $\theta =$ `r round( theta_ijt[1, 1, 1, sim_draw[ n_yrep ]], 2 )`, and $p =$ `r round( p_ijkt[1, 1, 1, 1, sim_draw[ n_yrep ]], 2 )`.
 
@@ -747,19 +747,19 @@ So, lets just take the last configuration of parameters from our previous plot, 
 n_y_i_rep <- 20 # number of replicate datasest to draw
 
 # make containers
-z_i_fix <- matrix( NA, ndate, n_y_i_rep )
-a_ij_fix <- array( NA, dim = c( ndate, nsamp, n_y_i_rep ) )
-y_rep_fix <- array( NA, dim = c( ndate, nsamp, nrep, n_y_i_rep ) )
+z_i_fix <- matrix( NA, ntime, n_y_i_rep )
+a_ij_fix <- array( NA, dim = c( ntime, nsamp, n_y_i_rep ) )
+y_rep_fix <- array( NA, dim = c( ntime, nsamp, nrep, n_y_i_rep ) )
 
 # Run the prior predictive simulation
-for ( i in 1:ndate ) {
-  z_i_fix[ i , ] <- rbinom( n_y_i_rep, 1, psi_i[ 1, sim_draw[ n_yrep ] ] )
+for ( i in 1:ntime ) {
+  z_i_fix[ i , ] <- rbinom( n_y_i_rep, 1, psi_it[ 1, 1, sim_draw[ n_yrep ] ] )
   
   for ( j in 1:nsamp ) {
-    a_ij_fix[ i, j, ] <- rbinom( n_y_i_rep, 1, z_i_fix[ i, ] * theta_ij[ 1, 1, sim_draw[ n_yrep ] ] )
+    a_ij_fix[ i, j, ] <- rbinom( n_y_i_rep, 1, z_i_fix[ i, ] * theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ] )
    
     for ( k in 1:nrep ) {
-      y_rep_fix[ i, j, k, ] <- rbinom( n_y_i_rep, 1, a_ij_fix[ i, j, ] * p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ] )
+      y_rep_fix[ i, j, k, ] <- rbinom( n_y_i_rep, 1, a_ij_fix[ i, j, ] * p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ] )
       }
     }
   }
@@ -770,11 +770,11 @@ y_rep_freq <- vector( 'list', n_y_i_rep )
 for( i in 1:n_y_i_rep ){
  y_rep_freq[[ i ]] <- data.frame( t( apply( y_rep_fix[ , , , i ], 1, rowSums ) ) ) %>%
   gather( variable, value ) %>%
-  mutate( samples = rep( seq(1, nsamp, 1), ndate ) ) %>%
+  mutate( samples = rep( seq(1, nsamp, 1), ntime ) ) %>%
   rename( day = variable, 
           pcr_detects = value,
           water_rep = samples ) %>%
-  mutate( day = rep( seq( 1, ndate, 1 ), each = nsamp ) )
+  mutate( day = rep( seq( 1, ntime, 1 ), each = nsamp ) )
 }
 
 # build a plot function and color palette
@@ -787,8 +787,8 @@ plot_yrep <- function( data, rep ){
     geom_point( alpha = 0.6 ) + 
     scale_size_identity( "PCR detects" ) + 
     scale_fill_gradientn( colours = myfill ) +
-    scale_x_discrete( "Water sample", limits = seq( 1, nsamp, 1 ) ) + 
-    scale_y_discrete( "Day", limits = seq( 1, ndate, 1 ) ) + 
+    scale_x_discrete( "Water sample", limits = factor(seq( 1, nsamp, 1 )) ) + 
+    scale_y_discrete( "Day", limits = factor(seq( 1, ntime, 1 )) ) + 
     theme( axis.title.x = element_text( size=10, vjust=1 ),
            axis.title.y = element_text( size=10, vjust=1 ),
            axis.text.y = element_text( size=8, angle=360 ), 
@@ -796,15 +796,15 @@ plot_yrep <- function( data, rep ){
            legend.position = "none",
            plot.title = element_text( size = 8, face = "bold" )
            ) +
-    ggtitle( bquote( list( psi == .( round( psi_i[ 1, sim_draw[ n_yrep ] ], 2 ) ),
-                           theta == .( round( theta_ij[ 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
-                           p == .( round( p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ) ) ) )
+    ggtitle( bquote( list( psi == .( round( psi_it[ 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
+                           theta == .( round( theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
+                           p == .( round( p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ) ) ) )
  }
 
 # make up dataset with all combinations for legend
-y_rep_legend <- data.frame( day = rep( seq( 1, ndate, 1 ), each = nsamp ),
-                            water_rep = rep( seq( 1, nsamp, 1 ), ndate ),
-                            pcr_detects = sample( seq( 0, nrep, 1 ), nsamp * ndate , replace = T ) )
+y_rep_legend <- data.frame( day = rep( seq( 1, ntime, 1 ), each = nsamp ),
+                            water_rep = rep( seq( 1, nsamp, 1 ), ntime ),
+                            pcr_detects = sample( seq( 0, nrep, 1 ), nsamp * ntime , replace = T ) )
 
 # make fake plot with legend to extract
 p_legend <- ggplot( y_rep_legend, aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
@@ -965,7 +965,7 @@ In any case, we also create a data list for our Stan program.
 # potential combinations of alpha that can lead to all-zero capture history
 alpha_potential <- expand.grid( rep( list( c( 0, 1 ) ), nsamp ) )
 
-stan_d <- list(ndate = ndate, 
+stan_d <- list(ndate = ntime, 
                nsamp = nsamp, 
                nrep = nrep, 
                y = y_rep_fix[ , , , 1 ], 
@@ -1006,14 +1006,14 @@ posteriors_fit <- rstan::extract( fit_mod1 )
 
 #plot
 qplot( x = posteriors_fit$psi[ ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = psi_i[ 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  geom_vline( xintercept = psi_it[ 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
   xlab( expression( psi ) )
 
 qplot( x = posteriors_fit$theta[ ,1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = theta_ij[ 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  geom_vline( xintercept = theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
   xlab( expression( theta ) )
 
 qplot( x = posteriors_fit$p[ , 1, 1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = p_ijk[ 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
+  geom_vline( xintercept = p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
   xlab( expression( p ) )
 ```
