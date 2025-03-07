@@ -11,11 +11,13 @@ output:
     #  url: https://latex.codecogs.com/svg.image?
     html_preview: TRUE
     keep_html: TRUE
+bibliography: references.bib
+link-citations: yes
 ---
 # Background and model
 For this scenario, imagine that we are looking to estimate the prevalence of a specific gene variant for 30 sites, visited once every three weeks for 17 weeks (roughly 1 year). So we have $t \in 1,...,T=17$ roughly equally-spaced points in time for which we intend to estimate the state of occupancy for each of the $i \in 1,..., S=30$ sites. For our water sampling method, we're also going to utilize $j \in 1,...,J=5$ replicate grab samples from a site on each visit; so we'd have to use $T \times J = 17 * 5 = 85$ water bottles over the course of the study for a single site in this scenario. Then, we'd conduct $k \in 1,...,K$ replicate qPCR runs per each of the water samples grabbed. Lets say we're going to do $K=4$ replicate qPCR analyses for each water sample $j$, where maybe we divide each, say, 500 mL sample equally among $K=4$ 125 mL samples for filtering and extraction. To summarize, we'd have 4 qPCR replicates, nested in each of 5 replicate water samples, which are nested in each of 17 days for each of 30 sampling sites. So, our $N$ as summed across the observation level (qPCR reps) is $N = K \times J \times T \times S = 4 \times 5 \times 17 \times 30 = 10200$. This is a huge $N$ and maybe unfeasible, but it is a place to start for illustrating the model and getting a general feel for some of the inherent sources of uncertainty in this type of study.
 
-Next, we'll use these hypothetical data dimensions to simulate a fake dataset using a multilevel occupancy model as described in [@Schmidt_etal_2013] and earlier by [@Nichols_etal_2008]. At first, we will ignore any hypothetical covariates (e.g., stream size, land use, measured water chemistry), but they can easily be included in the model later. The basic model below consists of a sequence of three coupled Bernoulli trials for describing the array of nested data, $y_{i,t,j,k}$, where we have an observed detection ($y_{itjk} = 1$) or not ($y_{itjk} = 0$) for each PCR replicate $k$, nested in a water sample $j$, nested in a sample visit day $t$ at a site $i$. If we plan to completely cross site and day, we would have $S \times T = 30 \times 17 = 510$ total sampling occasions. 
+Next, we'll use these hypothetical data dimensions to simulate fake datasets using a multilevel occupancy model as described in [@Schmidt_etal_2013] and earlier by [@Nichols_etal_2008]. At first, we will ignore any hypothetical covariates (e.g., stream size, land use, measured water chemistry), but they can easily be included in the model later. The basic model below consists of a sequence of three coupled Bernoulli trials for describing the array of nested data, $y_{i,t,j,k}$, where we have an observed detection ($y_{itjk} = 1$) or not ($y_{itjk} = 0$) for each PCR replicate $k$, nested in a water sample $j$, nested in a sample visit day $t$ at a site $i$. If we plan to completely cross site and day, we would have $S \times T = 30 \times 17 = 510$ total sampling occasions. 
 
 The model can be described in mathematical notation:
 
@@ -33,7 +35,7 @@ The third random variable $y_{ijk,t}$ is the four-dimensional array containing t
 Ultimately, we have three types of parameters, $\psi_{i,t}$, $\theta_{ij,t}$, and $p_{ijk,t}$, which we would like to estimate by conditioning on the observations, $y_{ijk,t}$, using fully Bayesian methods. Again, these are the probability of occupancy, the probability of availability (given occupied), and the probability of detection via PCR (given availability). The glaring assumption of this model is that there are no false positives. This is maybe a reasonable assumption for qPCR in terms of the measurement instrument itself working faithfully. It is maybe a reasonable assumption for the laboratory practice, where we would need to assume no or very little contamination or cross-reactivity. Outside the laboratory, false positives can arise in the field due to contamination during sampling, travel, or transfer. So, aside from building a different model that relaxes this important assumption, one would need to closely monitor for contamination in the lab, field, and transport (e.g., blanks, etc) in order to quantify and minimize the chance for false positives.
 
 ```{r setup, warning=FALSE, message=FALSE}
-knitr::opts_chunk$set(include = FALSE)
+#knitr::opts_chunk$set(include = FALSE)
 # Lets now set up our R environment to run the simulation.
 library(ggplot2)
 library(ggExtra)
@@ -121,36 +123,36 @@ Lets now choose the priors for the intercept parameter, which requires choices f
 # prior for log-odds-scale intercept parameter for psi
 loc_a_psi = 0
 scale_a_psi = 1.5
-a_psi <- rnorm( nsim, loc_a_psi, scale_a_psi )
+a_psi <- rnorm(nsim, loc_a_psi, scale_a_psi)
 ```
 
 So, we've chosen $\mu_{\alpha_{\psi}} = `r loc_a_psi`$ and $\sigma_{\alpha_{\psi}} = `r scale_a_psi`$. Therefore, our prior is centered over $\alpha_\psi = `r round( loc_a_psi, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_\psi ) = `r round( plogis( loc_a_psi ), 3 )`$ on the probability scale. Along with the scale we've chosen, this prior places 90% of the density of $\alpha_\psi$ between about `r round( qnorm( 0.05, loc_a_psi, scale_a_psi ), 3)` and `r round( qnorm( 0.05, loc_a_psi, scale_a_psi ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_psi, scale_a_psi ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_psi, scale_a_psi ) ), 3)` on the probability scale. Here's a vizualization of the prior on the log-odds scale.
 
-```{r prior_psi_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_psi_logodds_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
-ggplot( tibble( x = seq( - 10, 10, 0.01 ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_psi, scale_a_psi ) ), 
-        aes( x = x, y = y ) ) + 
+ggplot(tibble( x = seq(- 10, 10, 0.01), y = dnorm(seq(- 10, 10, 0.01), loc_a_psi, scale_a_psi)), 
+        aes(x = x, y = y)) + 
   geom_line() + 
-  ylab( "density" ) + xlab( expression( alpha[psi] ) )
+  ylab("density") + xlab(expression( alpha[psi]))
 ```
 
 And on the probability scale.
-```{r prior_psi_prob, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_psi_prob, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
-ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_psi, scale_a_psi ) ), 
-        aes( x = x, y = y ) ) + 
+ggplot(tibble(x = plogis(seq(- 10, 10, 0.01)), y = dnorm(seq(- 10, 10, 0.01), loc_a_psi, scale_a_psi)), 
+        aes(x = x, y = y )) + 
   geom_line() + 
-  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[psi] ) ) ) )
+  ylab("density") + xlab(expression(paste(logit^-1, (alpha[psi]))))
 ```
 
 And, finally, here are our simulated draws for this prior on the probability scale.
-```{r prior_psi_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_psi_prob_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
-ggplot( tibble( x = plogis( a_psi ) ), 
-        aes( x = x ) ) + 
-  geom_histogram( binwidth = 0.05 ) + 
-  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[psi] ) ) ) ) +
-  scale_x_continuous( limits = c( 0, 1 ) )
+ggplot(tibble(x = plogis(a_psi)), 
+        aes(x = x)) + 
+  geom_histogram(binwidth = 0.05) + 
+  ylab("number of draws from prior") + xlab(expression(paste(logit ^ -1,  (alpha[psi])))) +
+  scale_x_continuous(limits = c(0, 1))
 ```
 Next, we'll choose the priors standard deviation parameters for the varying effects. For these standard deviation parameters, the values must be non-zero. We use half-normal priors, which again require a choice of location and scale.
 
@@ -164,7 +166,7 @@ sigma_gamma_psi <- rtruncnorm(nsim, a = 0, mean = loc_sigma_gamma_psi, sd = scal
 
 We've chosen the location parameter for the prior on $\sigma_{\gamma_{\psi}}$ to be $`r loc_sigma_gamma_psi`$ and the scale parameter to be $`r scale_sigma_gamma_psi`$. Therefore, our prior is centered over $`r loc_sigma_gamma_psi`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_gamma_psi, sd = scale_sigma_gamma_psi), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_gamma_psi, sd = scale_sigma_gamma_psi), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_gamma_psi_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_gamma_psi_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -177,7 +179,7 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_gamma_psi_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_gamma_psi_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_gamma_psi), 
         aes(x = x)) + 
@@ -195,7 +197,7 @@ sigma_delta_psi <- rtruncnorm(nsim, a = 0, mean = loc_sigma_delta_psi, sd = scal
 
 We've chosen the location parameter for the prior on $\sigma_{\delta_{\psi}}$ to be $`r loc_sigma_delta_psi`$ and the scale parameter to be $`r scale_sigma_delta_psi`$. Our prior places most of the probability over $`r loc_sigma_delta_psi`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_delta_psi, sd = scale_sigma_delta_psi), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_delta_psi, sd = scale_sigma_delta_psi), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_delta_psi_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_delta_psi_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -208,13 +210,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_delta_psi_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_delta_psi_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_delta_psi), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[delta[psi]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c( 0, 2 ))
 ```
 The last parameter that needs a prior for the $\psi$ portion of the model is $\sigma_{\nu_{\psi}}$, which is the parameter controlling the amount of variation in the interaction between the site and day effects. This effectively determines how much between-site variation there is in day to day variability. The all-encompassing term might be "spatio-temporal" variation.
 ```{r prior_sigma_nu_psi}
@@ -226,7 +228,7 @@ sigma_nu_psi <- rtruncnorm(nsim, a = 0, mean = loc_sigma_nu_psi, sd = scale_sigm
 
 We've chosen the location parameter for the prior on $\sigma_{\nu_{\psi}}$ to be $`r loc_sigma_nu_psi`$ and the scale parameter to be $`r scale_sigma_nu_psi`$. Our prior places most of the probability over $`r loc_sigma_nu_psi`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_nu_psi, sd = scale_sigma_nu_psi), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_nu_psi, sd = scale_sigma_nu_psi), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_nu_psi_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_nu_psi_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -239,13 +241,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_nu_psi_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_nu_psi_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_nu_psi), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[nu[psi]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
 
 ### $\theta$
@@ -259,16 +261,16 @@ $$\nu_{\theta_{j,t}} \sim N(0, \sigma_{\nu_\theta})$$
 
 So, well choose prior values for $\mu_{\alpha_\theta}$ and $\sigma_{\alpha_\theta}$.
 
-```{r prior_theta_logodds, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_theta_logodds}
 # prior for log-odds-scale intercept parameter for psi
 loc_a_theta = -0.5
 scale_a_theta = 0.5
-a_theta <- rnorm( nsim, loc_a_theta, scale_a_theta )
+a_theta <- rnorm(nsim, loc_a_theta, scale_a_theta)
 ```
 
 We've chosen $\mu_{\alpha_\theta} = `r loc_a_theta`$ and $\sigma_{\alpha_\theta} = `r scale_a_theta`$. Therefore, our prior is centered over $\alpha_\theta = `r round( loc_a_theta, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_\theta ) = `r round( plogis( loc_a_theta ), 3 )`$ on the probability scale. This prior places 90% of the density of $\alpha_\theta$ between about `r round( qnorm( 0.05, loc_a_theta, scale_a_theta ), 3)` and `r round( qnorm( 0.05, loc_a_theta, scale_a_theta ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_theta, scale_a_theta ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_theta, scale_a_theta ) ), 3)` on the probability scale. Here's a visualization of the prior on the log-odds scale.
 
-```{r prior_theta_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_theta_logodds_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(- 10, 10, 0.01), y = dnorm(seq(- 10, 10, 0.01), loc_a_theta, scale_a_theta)), 
         aes(x = x, y = y)) + 
@@ -278,24 +280,25 @@ ggplot(tibble(x = seq(- 10, 10, 0.01), y = dnorm(seq(- 10, 10, 0.01), loc_a_thet
 
 On the probability scale.
 
-```{r prior_theta_prob, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_theta_prob, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
-ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_theta, scale_a_theta ) ), 
-        aes( x = x, y = y ) ) + 
+ggplot( tibble( x = plogis(seq(- 10, 10, 0.01)), y = dnorm(seq(- 10, 10, 0.01), loc_a_theta, scale_a_theta)), 
+        aes(x = x, y = y)) + 
   geom_line() + 
-  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[theta] ) ) ) ) +
-  scale_x_continuous( limits = c( 0, 1 ) )
+  ylab("density") + xlab(expression(paste(logit^-1,  (alpha[theta])))) +
+  scale_x_continuous(limits = c(0, 1))
 ```
 
 And, finally, our simulated draws from this prior on the probability scale.
-```{r prior_theta_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_theta_prob_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
-ggplot( tibble( x = plogis( a_theta ) ), 
-        aes( x = x ) ) + 
-  geom_histogram( binwidth = 0.05 ) + 
-  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[theta] ) ) ) ) +
+ggplot(tibble(x = plogis(a_theta)), 
+        aes(x = x)) + 
+  geom_histogram(binwidth = 0.05) + 
+  ylab("number of draws from prior") + xlab(expression(paste(logit ^ -1, (alpha[theta])))) +
   scale_x_continuous( limits = c( 0, 1 ) )
 ```
+
 The prior for $\sigma_{\gamma_{\theta}}$, which is the parameter determining the amount of site to site variation in $\theta$.
 ```{r prior_sigma_gamma_theta}
 # prior for scale parameter of varying site effects
@@ -306,7 +309,7 @@ sigma_gamma_theta <- rtruncnorm(nsim, a = 0, mean = loc_sigma_gamma_theta, sd = 
 
 We've chosen the location parameter for the prior on $\sigma_{\gamma_{\theta}}$ to be $`r loc_sigma_gamma_theta`$ and the scale parameter to be $`r scale_sigma_gamma_theta`$. Therefore, our prior is centered over $`r loc_sigma_gamma_theta`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_gamma_theta, sd = scale_sigma_gamma_theta), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_gamma_theta, sd = scale_sigma_gamma_theta), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_gamma_theta_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_gamma_theta_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -319,13 +322,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_gamma_theta_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_gamma_theta_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_gamma_theta), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[gamma[theta]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
 Next, the prior for $\sigma_{\delta_{\theta}}$, the parameter controlling the amount of day to day variation.
 ```{r prior_sigma_delta_theta}
@@ -337,7 +340,7 @@ sigma_delta_theta <- rtruncnorm(nsim, a = 0, mean = loc_sigma_delta_theta, sd = 
 
 We've chosen the location parameter for the prior on $\sigma_{\delta_{\theta}}$ to be $`r loc_sigma_delta_theta`$ and the scale parameter to be $`r scale_sigma_delta_psi`$. Our prior places most of the probability over $`r loc_sigma_delta_theta`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_delta_theta, sd = scale_sigma_delta_theta), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_delta_theta, sd = scale_sigma_delta_theta), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_delta_theta_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_delta_theta_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -350,13 +353,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_delta_theta_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_delta_theta_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_delta_theta), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[delta[theta]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
 The last parameter that needs a prior for the $\theta$ portion of the model is $\sigma_{\nu_{\theta}}$, which is the parameter controlling the amount of "spatio-temporal" variation.
 ```{r prior_sigma_nu_theta}
@@ -368,7 +371,7 @@ sigma_nu_theta <- rtruncnorm(nsim, a = 0, mean = loc_sigma_nu_theta, sd = scale_
 
 We've chosen the location parameter for the prior on $\sigma_{\nu_{\theta}}$ to be $`r loc_sigma_nu_theta`$ and the scale parameter to be $`r scale_sigma_nu_theta`$. Our prior places most of the probability over $`r loc_sigma_nu_theta`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_nu_theta, sd = scale_sigma_nu_theta), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_nu_theta, sd =scale_sigma_nu_theta), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_nu_theta_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_nu_theta_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -381,13 +384,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_nu_theta_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_nu_theta_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_nu_theta), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[nu[theta]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
 
 ### $p$
@@ -401,43 +404,44 @@ $$\nu_{p_{i,t}} \sim N(0, \sigma_{\nu_p})$$
 
 Next, choose prior values for $\mu_{\alpha_p}$ and $\sigma_{\alpha_p}$.
 
-```{r prior_p_logodds, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_p_logodds}
 # prior for log-odds-scale intercept parameter for p
 loc_a_p = 2
 scale_a_p = 1
-a_p <- rnorm( nsim, loc_a_p, scale_a_p )
+a_p <- rnorm(nsim, loc_a_p, scale_a_p)
 ```
 
 We've chosen $\mu_{\alpha_p} = `r loc_a_p`$ and $\sigma_{\alpha_p} = `r scale_a_p`$. Therefore, our prior is centered over $\alpha_p = `r round( loc_a_p, 3 )`$ on the log-odds scale, or $logit^{-1}( \alpha_p ) = `r round( plogis( loc_a_p ), 3 )`$ on the probability scale. This prior places 90% of the density of $\alpha_p$ between about `r round( qnorm( 0.05, loc_a_p, scale_a_p ), 3)` and `r round( qnorm( 0.05, loc_a_p, scale_a_p ), 3)` on the log-odds scale, or `r round( plogis( qnorm( 0.05, loc_a_p, scale_a_p ) ), 3)` and `r round( plogis( qnorm( 0.95, loc_a_p, scale_a_p ) ), 3)` on the probability scale. Here's a vizualization of the prior on the log-odds scale.
 
-```{r prior_p_logodds_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_p_logodds_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
-ggplot( tibble( x = seq( - 10, 10, 0.01 ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_p, scale_a_p ) ), 
-        aes( x = x, y = y ) ) + 
+ggplot(tibble(x = seq(- 10, 10, 0.01), y = dnorm(seq(- 10, 10, 0.01), loc_a_p, scale_a_p)), 
+        aes(x = x, y = y )) + 
   geom_line() + 
-  ylab( "density" ) + xlab( expression( alpha[p] ) )
+  ylab("density") + xlab(expression(alpha[p]))
 ```
 
 On the probability scale.
 
-```{r prior_p_prob, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_p_prob, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
-ggplot( tibble( x = plogis( seq( - 10, 10, 0.01 ) ), y = dnorm( seq( - 10, 10, 0.01 ), loc_a_p, scale_a_p ) ), 
+ggplot(tibble(x = plogis(seq(- 10, 10, 0.01)), y = dnorm(seq(- 10, 10, 0.01), loc_a_p, scale_a_p)), 
         aes( x = x, y = y ) ) + 
   geom_line() + 
-  ylab( "density" ) + xlab( expression( paste( logit^-1,  ( alpha[p] ) ) ) ) +
-  scale_x_continuous( limits = c( 0, 1 ) )
+  ylab("density") + xlab(expression(paste(logit ^ -1, (alpha[p])))) +
+  scale_x_continuous(limits = c(0, 1))
 ```
 
 And, finally, our simulated draws from this prior on the probability scale.
-```{r prior_p_prob_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_p_prob_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
-ggplot( tibble( x = plogis( a_p ) ), 
-        aes( x = x ) ) + 
-  geom_histogram( binwidth = 0.05 ) + 
-  ylab( "number of draws from prior" ) + xlab( expression( paste( logit^-1,  ( alpha[p] ) ) ) ) +
-  scale_x_continuous( limits = c( 0, 1 ) )
+ggplot(tibble(x = plogis(a_p)), 
+        aes(x = x)) + 
+  geom_histogram(binwidth = 0.05) + 
+  ylab("number of draws from prior") + xlab(expression(paste(logit ^ -1, (alpha[p])))) +
+  scale_x_continuous(limits = c(0, 1))
 ```
+
 The prior for $\sigma_{\gamma_p}$, which is the parameter determining the amount of site to site variation in $p$.
 ```{r prior_sigma_gamma_p}
 # prior for scale parameter of varying site effects
@@ -448,7 +452,7 @@ sigma_gamma_p <- rtruncnorm(nsim, a = 0, mean = loc_sigma_gamma_p, sd = scale_si
 
 We've chosen the location parameter for the prior on $\sigma_{\gamma_p}$ to be $`r loc_sigma_gamma_p`$ and the scale parameter to be $`r scale_sigma_gamma_p`$. Therefore, our prior is centered over $`r loc_sigma_gamma_p`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_gamma_p, sd = scale_sigma_gamma_p), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_gamma_p, sd = scale_sigma_gamma_p), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_gamma_p_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_gamma_p_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -461,14 +465,15 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_gamma_p_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_gamma_p_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_gamma_p), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[gamma[p]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
+
 Next, the prior for $\sigma_{\delta_p}$, the parameter controlling the amount of day to day variation in the probability of detection via qPCR conditional on it being available in the water sample.
 ```{r prior_sigma_delta_p}
 # prior for scale parameter of varying day effects
@@ -479,7 +484,7 @@ sigma_delta_p <- rtruncnorm(nsim, a = 0, mean = loc_sigma_delta_p, sd = scale_si
 
 We've chosen the location parameter for the prior on $\sigma_{\delta_p}$ to be $`r loc_sigma_delta_p`$ and the scale parameter to be $`r scale_sigma_delta_p`$. Our prior places most of the probability over $`r loc_sigma_delta_p`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_delta_p, sd = scale_sigma_delta_p), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_delta_p, sd = scale_sigma_delta_p), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_delta_p_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_delta_p_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -492,14 +497,15 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_delta_p_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_delta_p_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_delta_p), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[delta[p]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
+
 The last parameter that needs a prior for the $p$ portion of the model is $\sigma_{\nu_p}$, which is the parameter controlling the amount of "spatio-temporal" variation.
 ```{r prior_sigma_nu_p}
 # prior for scale parameter of varying site effects
@@ -510,7 +516,7 @@ sigma_nu_p <- rtruncnorm(nsim, a = 0, mean = loc_sigma_nu_p, sd = scale_sigma_nu
 
 We've chosen the location parameter for the prior on $\sigma_{\nu_p}$ to be $`r loc_sigma_nu_p`$ and the scale parameter to be $`r scale_sigma_nu_p`$. Our prior places most of the probability over $`r loc_sigma_nu_p`$. Along with the scale we've chosen, this prior places 90% of the density of this standard deviation parameter between about `r round(qtruncnorm(0.05, a = 0, mean = loc_sigma_nu_p, sd = scale_sigma_nu_p), 3)` and `r round(qtruncnorm(0.95, a = 0, mean = loc_sigma_nu_p, sd = scale_sigma_nu_p), 3)`. Below is a visualization of the prior.
 
-```{r prior_sigma_nu_p_plot, fig.align='center', fig.width=6, fig.height=4}
+```{r prior_sigma_nu_p_plot, fig.align='center', fig.width=4, fig.asp=0.75}
 # plot it
 ggplot(tibble(x = seq(0, 2, 0.01), 
               y = dtruncnorm(seq(0, 2, 0.01), 
@@ -523,13 +529,13 @@ ggplot(tibble(x = seq(0, 2, 0.01),
 ```
 
 Here are our simulated draws for this prior on the probability scale.
-```{r prior_sigma_nu_p_draws, fig.align='center', fig.width=6, fig.height=4, warning=F}
+```{r prior_sigma_nu_p_draws, fig.align='center', fig.width=4, fig.asp=0.75, warning=F}
 # plot it
 ggplot(tibble(x = sigma_nu_p), 
         aes(x = x)) + 
   geom_histogram(binwidth = 0.05) + 
   ylab("number of draws from prior") + xlab(expression(sigma[nu[p]])) +
-  scale_x_continuous( limits = c( 0, 2 ) )
+  scale_x_continuous(limits = c(0, 2))
 ```
 
 ## Simulate draws
@@ -576,12 +582,12 @@ for (i in 1:nsite) {
     z_it[i, t, ] <- rbinom(nsim, 1, psi_it[i, t, ])
   
   for (j in 1:nsamp) {
-    theta_ijt[i, j, t, ] <- plogis( a_theta + gamma_theta[i, ] + delta_theta[t, ] + nu_theta[i, t, ]) 
-    a_ijt[i, j, t, ] <- rbinom( nsim, 1, z_it[i, t, ] * theta_ijt[i, j, t, ] )
+    theta_ijt[i, j, t, ] <- plogis(a_theta + gamma_theta[i, ] + delta_theta[t, ] + nu_theta[i, t, ]) 
+    a_ijt[i, j, t, ] <- rbinom(nsim, 1, z_it[i, t, ] * theta_ijt[i, j, t, ])
    
     for (k in 1:nrep) {
-      p_ijkt[i, j, k, t, ] <- plogis( a_p + gamma_p[i, ] + delta_p[t, ] + nu_p[i, t, ])
-      y_ijkt[i, j, k, t, ] <- rbinom( nsim, 1, a_ijt[ i, j, t, ] * p_ijkt[ i, j, k, t, ] )
+      p_ijkt[i, j, k, t, ] <- plogis(a_p + gamma_p[i, ] + delta_p[t, ] + nu_p[i, t, ])
+      y_ijkt[i, j, k, t, ] <- rbinom(nsim, 1, a_ijt[ i, j, t, ] * p_ijkt[ i, j, k, t, ])
       }
     }
   }
@@ -591,7 +597,7 @@ for (i in 1:nsite) {
 ### Freqency of occupancy
 We can then use these draws from the prior predictive distribution to examine some of the practical implications of our priors and the model. For example, we can plot the prior predictive distribution of the number of days the sampling site is expected to be occupied.
 
-```{r distribution_occupancy_days, fig.align='center', fig.width=10, fig.height=10}
+```{r distribution_occupancy_days, fig.align='center', fig.width=8, fig.asp=1, warning=FALSE}
 plot_list <- vector(mode = "list", length = nsite)
 
 for (i in 1:nsite){
@@ -613,7 +619,7 @@ grid.arrange(grobs = plot_list,
 ```
 
 Or the number of sites occupied on any particular day.
-```{r distribution_occupancy_sites, fig.align='center', fig.width=10, fig.height=10}
+```{r distribution_occupancy_sites, fig.align='center', fig.width=8, fig.asp=1}
 plot_list <- vector(mode = "list", length = ntime)
 
 for (t in 1:ntime){
@@ -634,14 +640,15 @@ grid.arrange(grobs = plot_list,
              left = paste0("Number of simulations (", nsim, "\ possible)"),
              bottom = paste0("Number of \"occupied\" sites (", nsite, "\ ", "possible)"))
 ```
+
 ### Frequency of detections
 Or we can plot the prior predictive distribution of the total number of qPCR runs returning a positive result (out of `r nsite * ntime * nsamp * nrep` possible for each simulation).
 
-```{r distribution_pcr_detects}
-qplot( x = apply( y_ijkt, 5, sum ) / (nsite * ntime * nsamp * nrep ), binwidth = 0.01 ) + 
+```{r distribution_pcr_detects, fig.align='center', fig.width=6, fig.asp=0.75, warning=FALSE}
+qplot(x = apply( y_ijkt, 5, sum ) / (nsite * ntime * nsamp * nrep), binwidth = 0.01) + 
   expand_limits( x = c( 0, 1 ) ) +
-  xlab( paste0( "Proportion of\ " , nsite * ntime * nsamp * nrep, "\ total PCR samples as positive detections" ) ) +
-  ylab( paste0( "Number of simulations (", nsim, "\ possible)" ) )
+  xlab(paste0("Proportion of\ " , nsite * ntime * nsamp * nrep, "\ total PCR samples as positive detections")) +
+  ylab(paste0("Number of simulations (", nsim, "\ possible)" ))
 ```
 
 ### Replicate datasets
@@ -649,15 +656,15 @@ We could look at it another way by, say, visualizing replicated hypothetical dat
 
 ```{r frequency_yrep}
 n_yrep <- 20 # number of replicate datasest to draw
-sim_draw <- sample( 1:nsim, n_yrep, replace = F ) # assign random draw
+sim_draw <- sample(1:nsim, n_yrep, replace = F) # assign random draw
 
-psi_rep <- psi_it[, 1, sim_draw ] # psi for datasets drawn
-theta_rep <- theta_ijt[, , 1, sim_draw ] # theta for datasets drawn
-p_rep <- p_ijkt[, , , 1, sim_draw ] # p for datasets drawn
-y_rep <- y_ijkt[, , , 1, sim_draw ] # "oberved" y for each of the n_yrep datasets
+psi_rep <- psi_it[, 1, sim_draw] # psi for datasets drawn
+theta_rep <- theta_ijt[, , 1, sim_draw] # theta for datasets drawn
+p_rep <- p_ijkt[, , , 1, sim_draw] # p for datasets drawn
+y_rep <- y_ijkt[, , , 1, sim_draw] # "oberved" y for each of the n_yrep datasets
 
 # create empty list of dataframes to store y_rep data in frequency of pcr detects format
-y_rep_freq <- vector( 'list', n_yrep )
+y_rep_freq <- vector('list', n_yrep)
 
 # draw sample of datasets and re-format for plot
 for( i in 1:n_yrep ){
@@ -734,113 +741,113 @@ plot_out <- arrangeGrob(
 
 Specically, we'll plot `r n_yrep` of them, along with the values of the parameters they were generated from. Note that the parameters ($\psi$, $\theta$, $p$) are fixed for each of the 'datasets' in the plot, but each of those panels is only one probabilistic realization from the potential set generated from that particular configuration of the parameters.
 
-```{r frequency_plot, fig.height= 20, fig.width= 10, fig.align='center'}
-plot( plot_out )
+```{r frequency_plot, fig.width= 10, fig.asp=2, fig.align='center'}
+plot(plot_out)
 ```
 
 It may be informative to generate multiple realizations from a single configuration of the paramters. We'll now try that by taking one of the draws from the prior for the three parameters and plotting some hypothetical datasets based on that configuration. Another way to think of it might be to think of the prior for each parameter as just being a point value (or very strong). 
 
-So, lets just take the last configuration of parameters from our previous plot, where we have $\psi =$ `r round( psi_it[1, 1, sim_draw[ n_yrep ]], 2 )`, $\theta =$ `r round( theta_ijt[1, 1, 1, sim_draw[ n_yrep ]], 2 )`, and $p =$ `r round( p_ijkt[1, 1, 1, 1, sim_draw[ n_yrep ]], 2 )`.
+So, lets just take the last configuration of parameters from our previous plot, where we have $\psi =$ `r round(psi_it[1, 1, sim_draw[ n_yrep ]], 2)`, $\theta =$ `r round(theta_ijt[1, 1, 1, sim_draw[ n_yrep ]], 2)`, and $p =$ `r round(p_ijkt[1, 1, 1, 1, sim_draw[ n_yrep ]], 2)`.
 
 
 ```{r frequency_y_i_rep}
 n_y_i_rep <- 20 # number of replicate datasest to draw
 
 # make containers
-z_i_fix <- matrix( NA, ntime, n_y_i_rep )
-a_ij_fix <- array( NA, dim = c( ntime, nsamp, n_y_i_rep ) )
-y_rep_fix <- array( NA, dim = c( ntime, nsamp, nrep, n_y_i_rep ) )
+z_i_fix <- matrix(NA, ntime, n_y_i_rep)
+a_ij_fix <- array(NA, dim = c(ntime, nsamp, n_y_i_rep))
+y_rep_fix <- array(NA, dim = c(ntime, nsamp, nrep, n_y_i_rep))
 
 # Run the prior predictive simulation
-for ( i in 1:ntime ) {
-  z_i_fix[ i , ] <- rbinom( n_y_i_rep, 1, psi_it[ 1, 1, sim_draw[ n_yrep ] ] )
+for (i in 1:ntime) {
+  z_i_fix[i , ] <- rbinom(n_y_i_rep, 1, psi_it[ 1, 1, sim_draw[n_yrep]])
   
-  for ( j in 1:nsamp ) {
-    a_ij_fix[ i, j, ] <- rbinom( n_y_i_rep, 1, z_i_fix[ i, ] * theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ] )
+  for (j in 1:nsamp) {
+    a_ij_fix[i, j, ] <- rbinom(n_y_i_rep, 1, z_i_fix[ i, ] * theta_ijt[ 1, 1, 1, sim_draw[n_yrep]])
    
-    for ( k in 1:nrep ) {
-      y_rep_fix[ i, j, k, ] <- rbinom( n_y_i_rep, 1, a_ij_fix[ i, j, ] * p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ] )
+    for (k in 1:nrep) {
+      y_rep_fix[i, j, k, ] <- rbinom(n_y_i_rep, 1, a_ij_fix[i, j, ] * p_ijkt[1, 1, 1, 1, sim_draw[n_yrep]])
       }
     }
   }
 # create empty list of dataframes to store y_rep data in frequency of pcr detects format
-y_rep_freq <- vector( 'list', n_y_i_rep )
+y_rep_freq <- vector('list', n_y_i_rep)
 
 # draw sample of datasets and re-format for plot
-for( i in 1:n_y_i_rep ){
- y_rep_freq[[ i ]] <- data.frame( t( apply( y_rep_fix[ , , , i ], 1, rowSums ) ) ) %>%
-  gather( variable, value ) %>%
-  mutate( samples = rep( seq(1, nsamp, 1), ntime ) ) %>%
-  rename( day = variable, 
+for(i in 1:n_y_i_rep){
+ y_rep_freq[[i]] <- data.frame(t(apply(y_rep_fix[, , , i], 1, rowSums))) %>%
+  gather(variable, value) %>%
+  mutate(samples = rep(seq(1, nsamp, 1), ntime)) %>%
+  rename(day = variable, 
           pcr_detects = value,
-          water_rep = samples ) %>%
-  mutate( day = rep( seq( 1, ntime, 1 ), each = nsamp ) )
+          water_rep = samples) %>%
+  mutate(day = rep(seq(1, ntime, 1), each = nsamp))
 }
 
 # build a plot function and color palette
-myfill <- colorRampPalette( rev( brewer.pal( nrep, "Spectral" ) ) )
+myfill <- colorRampPalette(rev(brewer.pal(nrep, "Spectral")))
 
 
-plot_yrep <- function( data, rep ){
-  ggplot( data[[ rep ]], aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+plot_yrep <- function(data, rep){
+  ggplot(data[[rep]], aes(x = water_rep, y = day, size = pcr_detects, color = pcr_detects)) + 
     theme_bw() +
-    geom_point( alpha = 0.6 ) + 
-    scale_size_identity( "PCR detects" ) + 
-    scale_fill_gradientn( colours = myfill ) +
-    scale_x_discrete( "Water sample", limits = factor(seq( 1, nsamp, 1 )) ) + 
-    scale_y_discrete( "Day", limits = factor(seq( 1, ntime, 1 )) ) + 
-    theme( axis.title.x = element_text( size=10, vjust=1 ),
-           axis.title.y = element_text( size=10, vjust=1 ),
-           axis.text.y = element_text( size=8, angle=360 ), 
-           axis.text.x = element_text( angle=360, size=8, vjust=0.2 ),
+    geom_point(alpha = 0.6) + 
+    scale_size_identity("PCR detects") + 
+    scale_fill_gradientn(colours = myfill) +
+    scale_x_discrete("Water sample", limits = factor(seq(1, nsamp, 1))) + 
+    scale_y_discrete("Day", limits = factor(seq(1, ntime, 1))) + 
+    theme( axis.title.x = element_text(size=10, vjust=1),
+           axis.title.y = element_text(size=10, vjust=1),
+           axis.text.y = element_text(size=8, angle=360), 
+           axis.text.x = element_text(angle=360, size=8, vjust=0.2),
            legend.position = "none",
-           plot.title = element_text( size = 8, face = "bold" )
+           plot.title = element_text(size = 8, face = "bold")
            ) +
-    ggtitle( bquote( list( psi == .( round( psi_it[ 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
-                           theta == .( round( theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ),
-                           p == .( round( p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ], 2 ) ) ) ) )
+    ggtitle(bquote(list(psi == .(round(psi_it[1, 1, sim_draw[n_yrep]], 2)),
+                           theta == .(round(theta_ijt[1, 1, 1, sim_draw[n_yrep]], 2)),
+                           p == .(round(p_ijkt[1, 1, 1, 1, sim_draw[n_yrep]], 2)))))
  }
 
 # make up dataset with all combinations for legend
-y_rep_legend <- data.frame( day = rep( seq( 1, ntime, 1 ), each = nsamp ),
-                            water_rep = rep( seq( 1, nsamp, 1 ), ntime ),
-                            pcr_detects = sample( seq( 0, nrep, 1 ), nsamp * ntime , replace = T ) )
+y_rep_legend <- data.frame(day = rep(seq(1, ntime, 1), each = nsamp),
+                            water_rep = rep(seq(1, nsamp, 1), ntime),
+                            pcr_detects = sample(seq(0, nrep, 1), nsamp * ntime , replace = T))
 
 # make fake plot with legend to extract
-p_legend <- ggplot( y_rep_legend, aes( x = water_rep, y = day, size = pcr_detects, color = pcr_detects ) ) + 
+p_legend <- ggplot(y_rep_legend, aes(x = water_rep, y = day, size = pcr_detects, color = pcr_detects)) + 
   theme_bw() +
-  geom_point( alpha = 0.6 ) + 
-  scale_size_area( max_size = 4 ) + 
-  scale_fill_gradientn( colours = myfill ) +
-  theme(legend.title = element_text( size=10 ),
-        legend.text = element_text( size=10 ),
+  geom_point(alpha = 0.6) + 
+  scale_size_area(max_size = 4) + 
+  scale_fill_gradientn(colours = myfill) +
+  theme(legend.title = element_text(size=10),
+        legend.text = element_text(size=10),
         legend.position = "top",
-        legend.margin = margin( 0, 0, 0, 0 ),
-        legend.box.margin = margin( -10, 0, -10, -5 )
+        legend.margin = margin(0, 0, 0, 0),
+        legend.box.margin = margin(-10, 0, -10, -5)
         )
 
 # fn to extract legend
-get_legend <- function( myggplot ){
-  tmp <- ggplot_gtable( ggplot_build( myggplot ) )
-  leg <- which( sapply( tmp$grobs, function( x ) x$name ) == "guide-box" )
-  legend <- tmp$grobs[[ leg ]]
-  return( legend )
+get_legend <- function(myggplot){
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
 }
 
-p_legend <- get_legend( p_legend)
+p_legend <- get_legend(p_legend)
 
-plot_grid <- lapply( seq( 1, n_y_i_rep, 1 ), plot_yrep, data = y_rep_freq )
+plot_grid <- lapply(seq(1, n_y_i_rep, 1), plot_yrep, data = y_rep_freq)
 
 plot_out <- arrangeGrob( 
   p_legend,
-  do.call( arrangeGrob, c( plot_grid, ncol = 5 ) ),
+  do.call(arrangeGrob, c(plot_grid, ncol = 5)),
   ncol = 1,
   nrow = 2,
-  heights = c( 0.04, 0.96 ) )
+  heights = c(0.04, 0.96))
 ```
 
-```{r frequency_plot_fix, fig.height= 20, fig.width= 10, fig.align='center'}
-plot( plot_out )
+```{r frequency_plot_fix, fig.width= 10, fig.asp = 2, fig.align='center'}
+plot(plot_out)
 ```
 
 # A model in Stan
@@ -849,29 +856,32 @@ Now let use this model simulation to check our computational algorithm that we w
 We'll first code up our Stan model.
 
 ## Stan code
-Explanation of this code may come later.
+Thanks to Maxwell Jospeph for providing the first marginalized version of a multilevel occupancy model useable with Stan that I came across at:
+
+https://discourse.mc-stan.org/t/divergent-transition-every-iteration-multi-scale-occupancy-model/13739
+
 
 ```{stan stan_mocc_model, output.var = 'mocc'}
 data {
   int< lower = 1 > ndate;
   int< lower = 1 > nsamp;
   int< lower = 1 > nrep;
-  int< lower = 0, upper = 1 > y[ ndate, nsamp, nrep ];
+  int< lower = 0, upper = 1 > y[ndate, nsamp, nrep];
   int< lower = 1 > n_possible;
-  matrix< lower = 0, upper = 1 >[ n_possible, nsamp ] alpha_potential;
+  matrix< lower = 0, upper = 1 >[n_possible, nsamp] alpha_potential;
 }
 
 transformed data {
-  int< lower = 0, upper = 1 > known_present[ ndate ];
-  int< lower = 0, upper = 1 > known_available[ ndate, nsamp ];
-  for ( i in 1:ndate ) {
-    known_present[ i ] = 0;
-    for ( j in 1:nsamp ) {
-      known_available[ i, j ] = 0;
-      for ( k in 1:nrep ) {
-        if ( y[ i, j, k ] == 1) {
-         known_present[ i ] = 1;
-         known_available[ i, j ] = 1;
+  int<lower = 0, upper = 1> known_present[ndate];
+  int<lower = 0, upper = 1> known_available[ndate, nsamp];
+  for (i in 1:ndate) {
+    known_present[i] = 0;
+    for (j in 1:nsamp) {
+      known_available[i, j] = 0;
+      for (k in 1:nrep) {
+        if (y[i, j, k] == 1) {
+         known_present[i] = 1;
+         known_available[i, j] = 1;
         }
       }
     }
@@ -885,61 +895,61 @@ parameters {
 }
 
 transformed parameters {
-  vector[ ndate ] log_lik;
-  real< lower = 0, upper = 1 > psi[ ndate ];
-  real< lower = 0, upper = 1 > theta[ ndate, nsamp ];
-  real< lower = 0, upper = 1 > p[ ndate, nsamp, nrep ];
+  vector[ndate] log_lik;
+  real<lower = 0, upper = 1> psi[ndate];
+  real<lower = 0, upper = 1> theta[ndate, nsamp];
+  real<lower = 0, upper = 1> p[ndate, nsamp, nrep];
   
   // linear predictor
-  for( i in 1:ndate ){
-    psi[ i ] = inv_logit( a_psi ); // linear predictor (logit scale) for psi
-    for ( j in 1:nsamp ){
-      theta[ i, j ] = inv_logit( a_theta ); // linear predictor (logit scale) for theta
+  for(i in 1:ndate){
+    psi[i] = inv_logit(a_psi); // linear predictor (logit scale) for psi
+    for (j in 1:nsamp){
+      theta[i, j] = inv_logit(a_theta); // linear predictor (logit scale) for theta
       for( k in 1:nrep ){
-        p[ i, j, k ] = inv_logit( a_p ); // linear predictor (logit scale) for p
+        p[i, j, k] = inv_logit(a_p); // linear predictor (logit scale) for p
         } // k
       } // j
     } // i
   
   {
-    vector[ nsamp ] tmp_lp;
-    matrix[ n_possible, nsamp ] tmp_poss;
-    vector[ n_possible + 1 ] sum_poss;
+    vector[nsamp] tmp_lp;
+    matrix[n_possible, nsamp] tmp_poss;
+    vector[n_possible + 1] sum_poss;
     
-    for ( i in 1:ndate ) {
-      if ( known_present[ i ] ) {
-        for ( j in 1:nsamp ) {
-           if ( known_available[ i, j ] ) {
+    for (i in 1:ndate) {
+      if (known_present[i]) {
+        for (j in 1:nsamp) {
+           if (known_available[i, j]) {
              // present in site and available for water sample
-             tmp_lp[ j ] = log( theta[ i, j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] );
+             tmp_lp[j] = log(theta[i, j]) + bernoulli_lpmf(y[i, j, ] | p[i, j, ]);
           
              } else {
                // present, possibly unavailable for water sample
-               tmp_lp[ j ] = log_sum_exp(
-                 log( theta[ i, j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] ), 
-                 log1m( theta[ i, j ] )
+               tmp_lp[j] = log_sum_exp(
+                 log(theta[i, j]) + bernoulli_lpmf(y[i, j, ] | p[i, j, ]), 
+                 log1m(theta[i, j ])
                  );
                }
         } // j( 1 )
-        log_lik[ i ] = log( psi[ i ] ) + sum( tmp_lp );
+        log_lik[i] = log(psi[i]) + sum(tmp_lp);
       } else {
         // could be present or absent (was never detected)
         // and there are 2^ntime possible combinations
         // of alpha_{i, j} that are relevant if z_i = 1
-        for ( jj in 1:n_possible ) {
-          for ( j in 1:nsamp ) {
-            if ( alpha_potential[ jj, j ] == 0 ) {
+        for (jj in 1:n_possible) {
+          for (j in 1:nsamp) {
+            if (alpha_potential[jj, j] == 0) {
               // not available
-              tmp_poss[ jj, j ] = log1m( theta[ i, j ] );
+              tmp_poss[jj, j] = log1m(theta[i, j ]);
             } else {
               // available but not detected
-              tmp_poss[ jj, j ] = log( theta[ i , j ] ) + bernoulli_lpmf( y[ i, j, ] | p[ i, j, ] );
+              tmp_poss[jj, j] = log(theta[i , j]) + bernoulli_lpmf(y[i, j, ] | p[i, j, ]);
             }
           }
-          sum_poss[ jj ] = log( psi[ i ] ) + sum( tmp_poss[ jj, ] );
+          sum_poss[jj] = log(psi[i]) + sum(tmp_poss[jj, ]);
         } // j( 2 )
-        sum_poss[ n_possible + 1 ] = log1m( psi[ i ] );
-        log_lik[ i ] = log_sum_exp( sum_poss );
+        sum_poss[n_possible + 1] = log1m(psi[i]);
+        log_lik[i] = log_sum_exp(sum_poss);
       }
     } // i
   }
@@ -947,12 +957,12 @@ transformed parameters {
 
 model {
   // priors
-  target += normal_lpdf( a_psi | -3, 1 );
-  target += normal_lpdf( a_theta | -1, 1 );
-  target += normal_lpdf( a_p | 1, 1 );
+  target += normal_lpdf(a_psi | -3, 1);
+  target += normal_lpdf(a_theta | -1, 1);
+  target += normal_lpdf(a_p | 1, 1);
   
   // add likelihood
-  target += sum( log_lik );
+  target += sum(log_lik);
 }
 ```
 
@@ -963,12 +973,12 @@ In any case, we also create a data list for our Stan program.
 
 ```{r stan_code}
 # potential combinations of alpha that can lead to all-zero capture history
-alpha_potential <- expand.grid( rep( list( c( 0, 1 ) ), nsamp ) )
+alpha_potential <- expand.grid(rep(list(c(0, 1)), nsamp))
 
 stan_d <- list(ndate = ntime, 
                nsamp = nsamp, 
                nrep = nrep, 
-               y = y_rep_fix[ , , , 1 ], 
+               y = y_rep_fix[, , , 1], 
                n_possible = 2 ^ nsamp, 
                alpha_potential = alpha_potential)
 
@@ -993,27 +1003,35 @@ fit_mod1 <- sampling(
 And we'll print the posterior estimates. Note the indexing on "psi", "theta" and "p", We chose just the first index for each of these because all the others are the same due to this being an "intercept only" model. With a more complex linear predictor, each of these parameters could vary among sites, samples and/or reps; and in that case we might choose to print more dimensions. More likely, though, we'd be more interested in the logit scale parameters in that case. Nevertheless, for this simpler model we'll print both the logit scale intercept parameters and each of $\psi$, $\theta$, and $p$.
 
 ```{r print_mod1}
-print( fit_mod1, 
-       pars = c( "a_psi", "a_theta", "a_p", "psi[1]", "theta[1,1]", "p[1,1,1]" ), 
-       digits_summary = 3 )
+print(fit_mod1, 
+       pars = c("a_psi", "a_theta", "a_p", "psi[1]", "theta[1,1]", "p[1,1,1]"), 
+       digits_summary = 3)
 ```
 
 We can also plot the posteriors and overlay the known parameters to assess recovery.
 
-```{r plotting_params}
+```{r plotting_params, fig.align='center', fig.width=6, fig.asp=0.75}
 #first extract posteriors
-posteriors_fit <- rstan::extract( fit_mod1 )
+posteriors_fit <- rstan::extract(fit_mod1)
 
 #plot
-qplot( x = posteriors_fit$psi[ ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = psi_it[ 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
-  xlab( expression( psi ) )
+qplot(x = posteriors_fit$psi[ ,1], geom = 'histogram', binwidth = 0.01) +
+  geom_vline(xintercept = psi_it[1, 1, sim_draw[n_yrep]], color = 'red', size = 2) +
+  xlab(expression( psi ) )
 
-qplot( x = posteriors_fit$theta[ ,1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = theta_ijt[ 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
-  xlab( expression( theta ) )
+qplot(x = posteriors_fit$theta[ ,1 ,1], geom = 'histogram', binwidth = 0.01 ) +
+  geom_vline(xintercept = theta_ijt[1, 1, 1, sim_draw[n_yrep]], color = 'red', size = 2) +
+  xlab(expression(theta))
 
-qplot( x = posteriors_fit$p[ , 1, 1 ,1 ], geom = 'histogram', binwidth = 0.01 ) +
-  geom_vline( xintercept = p_ijkt[ 1, 1, 1, 1, sim_draw[ n_yrep ] ], color = 'red', size = 2 ) +
-  xlab( expression( p ) )
+qplot(x = posteriors_fit$p[ , 1, 1 , 1], geom = 'histogram', binwidth = 0.01) +
+  geom_vline(xintercept = p_ijkt[1, 1, 1, 1, sim_draw[n_yrep]], color = 'red', size = 2) +
+  xlab(expression(p))
 ```
+
+# Session info
+
+```{r session_information}
+sessionInfo()
+```
+
+# References
